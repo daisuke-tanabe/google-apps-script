@@ -4,7 +4,7 @@
  * 180日以上前、かつスターなし、かつ重要マークなしのメールを完全削除し、
  * 自分のSlack DMに通知するスクリプト
  *
- * @version 1.0.0
+ * @version 1.1.0
  * 
  * 【事前準備】
  * 1. Gmail APIを有効化（サービス → Gmail API を追加）
@@ -30,9 +30,11 @@
 const CONFIG = {
   RETENTION_DAYS: 180,
   DRY_RUN: false,
+  SLACK_API_URL: 'https://slack.com/api/chat.postMessage',
 };
 
-const SLACK_API_URL = 'https://slack.com/api/chat.postMessage';
+// Credentials キャッシュ
+let _credentials = null;
 
 // ===================
 // メイン処理
@@ -40,8 +42,12 @@ const SLACK_API_URL = 'https://slack.com/api/chat.postMessage';
 
 /**
  * メイン関数：古いメールを削除してSlackに通知
+ * @param {Object} [options] - オプション
+ * @param {boolean} [options.dryRun] - ドライランモード（デフォルト: CONFIG.DRY_RUN）
  */
-function cleanupOldEmailsAndNotify() {
+function cleanupOldEmailsAndNotify(options = {}) {
+  const isDryRun = options.dryRun ?? CONFIG.DRY_RUN;
+
   const searchQuery = buildSearchQuery();
   const targetThreads = GmailApp.search(searchQuery);
   const targetCount = targetThreads.length;
@@ -56,7 +62,7 @@ function cleanupOldEmailsAndNotify() {
 
   logTargetThreads(targetThreads);
 
-  if (CONFIG.DRY_RUN) {
+  if (isDryRun) {
     console.log('【ドライランモード】削除はスキップされました。');
     notifySlack(targetCount, true);
     return;
@@ -117,7 +123,8 @@ function deleteAllMessagesInThread(thread) {
  */
 function notifySlack(count, isDryRun) {
   const credentials = getSlackCredentials();
-  if (!credentials.token || !credentials.userId) {
+  const validation = validateCredentials(credentials);
+  if (!validation.valid) {
     console.error('Slack認証情報が設定されていません。verifySettings() を実行して確認してください。');
     return;
   }
@@ -139,7 +146,7 @@ function notifySlack(count, isDryRun) {
   };
 
   try {
-    const response = UrlFetchApp.fetch(SLACK_API_URL, fetchOptions);
+    const response = UrlFetchApp.fetch(CONFIG.SLACK_API_URL, fetchOptions);
     const result = JSON.parse(response.getContentText());
 
     if (result.ok) {
@@ -205,14 +212,39 @@ function buildSlackMessage(count, isDryRun) {
 }
 
 /**
- * スクリプトプロパティからSlack認証情報を取得
+ * スクリプトプロパティからSlack認証情報を取得（キャッシュ付き）
  */
 function getSlackCredentials() {
-  const props = PropertiesService.getScriptProperties();
-  return {
-    token: props.getProperty('SLACK_BOT_TOKEN'),
-    userId: props.getProperty('SLACK_USER_ID'),
-  };
+  if (!_credentials) {
+    const props = PropertiesService.getScriptProperties();
+    _credentials = {
+      token: props.getProperty('SLACK_BOT_TOKEN'),
+      userId: props.getProperty('SLACK_USER_ID'),
+    };
+  }
+  return _credentials;
+}
+
+/**
+ * Credentials の検証
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+function validateCredentials(credentials) {
+  const errors = [];
+
+  if (!credentials.token) {
+    errors.push('SLACK_BOT_TOKEN: 未設定');
+  } else if (!credentials.token.startsWith('xoxb-')) {
+    errors.push('SLACK_BOT_TOKEN: 形式が不正（xoxb- で始まる必要があります）');
+  }
+
+  if (!credentials.userId) {
+    errors.push('SLACK_USER_ID: 未設定');
+  } else if (!credentials.userId.startsWith('U')) {
+    errors.push('SLACK_USER_ID: 形式が不正（U で始まる必要があります）');
+  }
+
+  return { valid: errors.length === 0, errors };
 }
 
 // ===================
@@ -225,35 +257,20 @@ function getSlackCredentials() {
  */
 function verifySettings() {
   console.log('=== 設定確認 ===');
-  
+
   const credentials = getSlackCredentials();
-  let hasError = false;
-  
-  // SLACK_BOT_TOKEN の確認
-  if (!credentials.token) {
-    console.error('❌ SLACK_BOT_TOKEN: 未設定');
-    hasError = true;
-  } else if (!credentials.token.startsWith('xoxb-')) {
-    console.error('❌ SLACK_BOT_TOKEN: 形式が不正（xoxb- で始まる必要があります）');
-    hasError = true;
-  } else {
+  const validation = validateCredentials(credentials);
+
+  if (validation.valid) {
     console.log('✅ SLACK_BOT_TOKEN: 設定済み');
-  }
-  
-  // SLACK_USER_ID の確認
-  if (!credentials.userId) {
-    console.error('❌ SLACK_USER_ID: 未設定');
-    hasError = true;
-  } else if (!credentials.userId.startsWith('U')) {
-    console.error('❌ SLACK_USER_ID: 形式が不正（U で始まる必要があります）');
-    hasError = true;
-  } else {
     console.log(`✅ SLACK_USER_ID: ${credentials.userId}`);
+  } else {
+    validation.errors.forEach(error => console.error(`❌ ${error}`));
   }
-  
+
   console.log('================');
-  
-  if (hasError) {
+
+  if (!validation.valid) {
     console.log('');
     console.log('【設定方法】');
     console.log('1. GASエディタ左メニュー「⚙️ プロジェクトの設定」をクリック');
@@ -297,12 +314,5 @@ function testSlackConnection() {
  * ドライランモードで実行（削除せず通知のみ）
  */
 function dryRun() {
-  const originalDryRun = CONFIG.DRY_RUN;
-  CONFIG.DRY_RUN = true;
-  
-  try {
-    cleanupOldEmailsAndNotify();
-  } finally {
-    CONFIG.DRY_RUN = originalDryRun;
-  }
+  cleanupOldEmailsAndNotify({ dryRun: true });
 }
