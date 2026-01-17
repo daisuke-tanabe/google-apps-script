@@ -1,0 +1,80 @@
+name: Deploy GAS Projects
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '*/src/**'
+      - '*/appsscript.json'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.changes.outputs.projects }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed projects
+        id: changes
+        run: |
+          # 変更があったプロジェクトディレクトリを検出
+          CHANGED_PROJECTS=$(git diff --name-only HEAD~1 HEAD | \
+            grep -E '^[^/]+/(src/|appsscript\.json)' | \
+            cut -d'/' -f1 | \
+            sort -u | \
+            jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          echo "Changed projects: $CHANGED_PROJECTS"
+          echo "projects=$CHANGED_PROJECTS" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.projects != '[]' && needs.detect-changes.outputs.projects != '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        project: ${{ fromJson(needs.detect-changes.outputs.projects) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Setup clasp credentials
+        run: |
+          echo '${{ secrets.CLASP_TOKEN }}' > ~/.clasprc.json
+
+      - name: Generate .clasp.json
+        working-directory: ${{ matrix.project }}
+        env:
+          # プロジェクト名を大文字+アンダースコアに変換して Secret から取得
+          # 例: gmail-cleanup → GMAIL_CLEANUP_SCRIPT_ID
+          SCRIPT_ID: ${{ secrets[format('{0}_SCRIPT_ID', join(split(matrix.project, '-'), '_'))] }}
+        run: |
+          # Secret 名の変換 (gmail-cleanup → GMAIL_CLEANUP_SCRIPT_ID)
+          SECRET_NAME=$(echo "${{ matrix.project }}" | tr '[:lower:]-' '[:upper:]_')_SCRIPT_ID
+          echo "Looking for secret: $SECRET_NAME"
+
+          if [ -z "$SCRIPT_ID" ]; then
+            echo "::error::Secret $SECRET_NAME is not set"
+            exit 1
+          fi
+
+          echo "{\"scriptId\": \"$SCRIPT_ID\", \"rootDir\": \"./src\"}" > .clasp.json
+          echo "Generated .clasp.json for ${{ matrix.project }}"
+
+      - name: Deploy ${{ matrix.project }}
+        working-directory: ${{ matrix.project }}
+        run: |
+          echo "Deploying ${{ matrix.project }}..."
+          clasp push --force
+          echo "Done!"

@@ -1,0 +1,11 @@
+# clasp credentials (contains scriptId)
+**/.clasp.json
+
+# IDE
+.idea/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
