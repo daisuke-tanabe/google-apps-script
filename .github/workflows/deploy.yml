@@ -56,16 +56,13 @@ jobs:
       - name: Generate .clasp.json
         working-directory: ${{ matrix.project }}
         env:
-          # プロジェクト名を大文字+アンダースコアに変換して Secret から取得
-          # 例: gmail-cleanup → GMAIL_CLEANUP_SCRIPT_ID
-          SCRIPT_ID: ${{ secrets[format('{0}_SCRIPT_ID', join(split(matrix.project, '-'), '_'))] }}
+          SCRIPT_IDS: ${{ secrets.SCRIPT_IDS }}
         run: |
-          # Secret 名の変換 (gmail-cleanup → GMAIL_CLEANUP_SCRIPT_ID)
-          SECRET_NAME=$(echo "${{ matrix.project }}" | tr '[:lower:]-' '[:upper:]_')_SCRIPT_ID
-          echo "Looking for secret: $SECRET_NAME"
+          # JSON から該当プロジェクトの scriptId を取得
+          SCRIPT_ID=$(echo "$SCRIPT_IDS" | jq -r '.["${{ matrix.project }}"]')
 
-          if [ -z "$SCRIPT_ID" ]; then
-            echo "::error::Secret $SECRET_NAME is not set"
+          if [ -z "$SCRIPT_ID" ] || [ "$SCRIPT_ID" = "null" ]; then
+            echo "::error::Script ID for '${{ matrix.project }}' not found in SCRIPT_IDS secret"
             exit 1
           fi
 
