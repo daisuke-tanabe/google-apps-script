@@ -51,12 +51,12 @@ jobs:
 
       - name: Setup clasp credentials
         run: |
-          echo '${{ secrets.CLASP_TOKEN }}' > ~/.clasprc.json
+          echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
 
       - name: Generate .clasp.json
         working-directory: ${{ matrix.project }}
         env:
-          SCRIPT_IDS: ${{ secrets.SCRIPT_IDS }}
+          SCRIPT_IDS: ${{ secrets.SCRIPT_IDS_JSON }}
         run: |
           # JSON から該当プロジェクトの scriptId を取得
           SCRIPT_ID=$(echo "$SCRIPT_IDS" | jq -r '.["${{ matrix.project }}"]')
