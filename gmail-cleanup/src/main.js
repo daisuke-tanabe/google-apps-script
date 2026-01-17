@@ -4,7 +4,7 @@
  * 180日以上前、かつスターなし、かつ重要マークなしのメールを完全削除し、
  * 自分のSlack DMに通知するスクリプト
  *
- * @version 1.1.0
+ * @version 1.2.0
  * 
  * 【事前準備】
  * 1. Gmail APIを有効化（サービス → Gmail API を追加）
@@ -24,21 +24,14 @@
  *    Slackで自分のプロフィール → 「︙」→「メンバーIDをコピー」
  */
 
-// ===================
-// 設定
-// ===================
 const CONFIG = {
   RETENTION_DAYS: 180,
   DRY_RUN: false,
-  SLACK_API_URL: 'https://slack.com/api/chat.postMessage',
+  SLACK_POST_URL: 'https://slack.com/api/chat.postMessage',
+  SLACK_AUTH_URL: 'https://slack.com/api/auth.test',
 };
 
-// Credentials キャッシュ
 let _credentials = null;
-
-// ===================
-// メイン処理
-// ===================
 
 /**
  * メイン関数：古いメールを削除してSlackに通知
@@ -71,10 +64,6 @@ function cleanupOldEmailsAndNotify(options = {}) {
   const deletedCount = deleteThreadsPermanently(targetThreads);
   notifySlack(deletedCount, false);
 }
-
-// ===================
-// ヘルパー関数
-// ===================
 
 function buildSearchQuery() {
   return `older_than:${CONFIG.RETENTION_DAYS}d -is:starred -is:important`;
@@ -114,13 +103,6 @@ function deleteAllMessagesInThread(thread) {
   });
 }
 
-// ===================
-// Slack通知（自分のDMに送信）
-// ===================
-
-/**
- * 自分のSlack DMに削除結果を通知
- */
 function notifySlack(count, isDryRun) {
   const credentials = getSlackCredentials();
   const validation = validateCredentials(credentials);
@@ -146,7 +128,7 @@ function notifySlack(count, isDryRun) {
   };
 
   try {
-    const response = UrlFetchApp.fetch(CONFIG.SLACK_API_URL, fetchOptions);
+    const response = UrlFetchApp.fetch(CONFIG.SLACK_POST_URL, fetchOptions);
     const result = JSON.parse(response.getContentText());
 
     if (result.ok) {
@@ -159,49 +141,19 @@ function notifySlack(count, isDryRun) {
   }
 }
 
-/**
- * Slack Block Kit形式のメッセージを構築
- */
 function buildSlackBlocks(count, isDryRun) {
   const status = isDryRun ? 'Dry Run' : 'Done';
-  const condition = `${CONFIG.RETENTION_DAYS}日以上前 \`AND\`\nスターなし \`AND\`\n重要マークなし`;
-  
+  const filter = `${CONFIG.RETENTION_DAYS}日以上前 \`AND\`\nスターなし \`AND\`\n重要マークなし`;
+
+  const header = (text) => ({ type: 'header', text: { type: 'plain_text', text, emoji: true } });
+  const section = (text) => ({ type: 'section', text: { type: 'mrkdwn', text } });
+  const fields = (items) => ({ type: 'section', fields: items.map(text => ({ type: 'mrkdwn', text })) });
+
   return [
-    {
-      type: 'header',
-      text: {
-        type: 'plain_text',
-        text: ':broom: Gmail自動整理レポート',
-        emoji: true,
-      },
-    },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: '対象メールを完全に削除しました',
-      },
-    },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*Status:*\n${status}`,
-      },
-    },
-    {
-      type: 'section',
-      fields: [
-        {
-          type: 'mrkdwn',
-          text: `*Filter:*\n${condition}`,
-        },
-        {
-          type: 'mrkdwn',
-          text: `*Count:*\n${count} 件`,
-        },
-      ],
-    },
+    header(':broom: Gmail自動整理レポート'),
+    section('対象メールを完全に削除しました'),
+    section(`*Status:*\n${status}`),
+    fields([`*Filter:*\n${filter}`, `*Count:*\n${count} 件`]),
   ];
 }
 
@@ -247,62 +199,38 @@ function validateCredentials(credentials) {
   return { valid: errors.length === 0, errors };
 }
 
-// ===================
-// セットアップ用ユーティリティ
-// ===================
-
-/**
- * 設定確認（スクリプトプロパティが正しく設定されているか確認）
- * 初回セットアップ後に実行してください
- */
 function verifySettings() {
-  console.log('=== 設定確認 ===');
-
   const credentials = getSlackCredentials();
   const validation = validateCredentials(credentials);
 
+  console.log('=== 設定確認 ===');
   if (validation.valid) {
     console.log('✅ SLACK_BOT_TOKEN: 設定済み');
     console.log(`✅ SLACK_USER_ID: ${credentials.userId}`);
+    console.log('✅ testSlackConnection() で接続テストを実行してください');
   } else {
-    validation.errors.forEach(error => console.error(`❌ ${error}`));
-  }
-
-  console.log('================');
-
-  if (!validation.valid) {
-    console.log('');
-    console.log('【設定方法】');
-    console.log('1. GASエディタ左メニュー「⚙️ プロジェクトの設定」をクリック');
-    console.log('2. 下部「スクリプト プロパティ」で以下を追加:');
-    console.log('   - SLACK_BOT_TOKEN: xoxb-xxxx-xxxx-xxxx');
-    console.log('   - SLACK_USER_ID: U01XXXXXXXX');
-  } else {
-    console.log('✅ 全ての設定が完了しています。testSlackConnection() で接続テストを実行してください。');
+    validation.errors.forEach(e => console.error(`❌ ${e}`));
+    console.log('\n【設定方法】プロジェクトの設定 → スクリプト プロパティ');
+    console.log('  SLACK_BOT_TOKEN: xoxb-xxxx-xxxx-xxxx');
+    console.log('  SLACK_USER_ID: U01XXXXXXXX');
   }
 }
 
-/**
- * Slack接続テスト
- */
 function testSlackConnection() {
   const credentials = getSlackCredentials();
-  
-  if (!credentials.token) {
-    console.error('SLACK_BOT_TOKEN が設定されていません。verifySettings() を実行して確認してください。');
+  const validation = validateCredentials(credentials);
+  if (!validation.valid) {
+    validation.errors.forEach(e => console.error(`❌ ${e}`));
     return;
   }
-  
-  const response = UrlFetchApp.fetch('https://slack.com/api/auth.test', {
+
+  const response = UrlFetchApp.fetch(CONFIG.SLACK_AUTH_URL, {
     method: 'post',
-    headers: {
-      'Authorization': `Bearer ${credentials.token}`,
-    },
+    headers: { 'Authorization': `Bearer ${credentials.token}` },
     muteHttpExceptions: true,
   });
-  
   const result = JSON.parse(response.getContentText());
-  
+
   if (result.ok) {
     console.log(`✅ 接続成功: ${result.team} / Bot: ${result.user}`);
   } else {
@@ -310,9 +238,6 @@ function testSlackConnection() {
   }
 }
 
-/**
- * ドライランモードで実行（削除せず通知のみ）
- */
 function dryRun() {
   cleanupOldEmailsAndNotify({ dryRun: true });
 }
