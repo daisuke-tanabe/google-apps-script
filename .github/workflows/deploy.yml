@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - '*/src/**'
+      - '*/*.js'
       - '*/appsscript.json'
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
         run: |
           # 変更があったプロジェクトディレクトリを検出
           CHANGED_PROJECTS=$(git diff --name-only HEAD~1 HEAD | \
-            grep -E '^[^/]+/(src/|appsscript\.json)' | \
+            grep -E '^[^/]+/.*\.(js|json)$' | \
             cut -d'/' -f1 | \
             sort -u | \
             jq -R -s -c 'split("\n") | map(select(length > 0))')
@@ -66,7 +66,7 @@ jobs:
             exit 1
           fi
 
-          echo "{\"scriptId\": \"$SCRIPT_ID\", \"rootDir\": \"./src\"}" > .clasp.json
+          echo "{\"scriptId\": \"$SCRIPT_ID\", \"rootDir\": \".\"}" > .clasp.json
           echo "Generated .clasp.json for ${{ matrix.project }}"
 
       - name: Deploy ${{ matrix.project }}
