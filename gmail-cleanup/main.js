@@ -4,7 +4,7 @@
  * 180日以上前、かつスターなし、かつ重要マークなしのメールを完全削除し、
  * 自分のSlack DMに通知するスクリプト
  *
- * @version 1.2.0
+ * @version 1.3.0
  * 
  * 【事前準備】
  * 1. Gmail APIを有効化（サービス → Gmail API を追加）
@@ -80,27 +80,25 @@ function logTargetThreads(threads) {
 }
 
 function deleteThreadsPermanently(threads) {
-  let deletedCount = 0;
-
+  const messageIds = [];
   threads.forEach(thread => {
-    try {
-      deleteAllMessagesInThread(thread);
-      deletedCount++;
-    } catch (error) {
-      const subject = thread.getFirstMessageSubject();
-      console.error(`削除失敗: ${subject} - ${error.message}`);
-    }
+    thread.getMessages().forEach(message => {
+      messageIds.push(message.getId());
+    });
   });
 
-  console.log(`削除完了: ${deletedCount}/${threads.length} スレッド`);
-  return deletedCount;
-}
+  if (messageIds.length === 0) {
+    return 0;
+  }
 
-function deleteAllMessagesInThread(thread) {
-  const messages = thread.getMessages();
-  messages.forEach(message => {
-    Gmail.Users.Messages.remove('me', message.getId());
-  });
+  const BATCH_SIZE = 1000;
+  for (let i = 0; i < messageIds.length; i += BATCH_SIZE) {
+    const batch = messageIds.slice(i, i + BATCH_SIZE);
+    Gmail.Users.Messages.batchDelete({ ids: batch }, 'me');
+  }
+
+  console.log(`削除完了: ${messageIds.length} メッセージ (${threads.length} スレッド)`);
+  return threads.length;
 }
 
 function notifySlack(count, isDryRun) {
