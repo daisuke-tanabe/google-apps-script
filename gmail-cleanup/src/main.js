@@ -1,8 +1,10 @@
 /**
  * GmailCleanup_DANGER
- * 
+ *
  * 180日以上前、かつスターなし、かつ重要マークなしのメールを完全削除し、
  * 自分のSlack DMに通知するスクリプト
+ *
+ * @version 1.0.0
  * 
  * 【事前準備】
  * 1. Gmail APIを有効化（サービス → Gmail API を追加）
